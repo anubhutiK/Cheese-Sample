@@ -1,0 +1,505 @@
+/**************************************************************
+* NAME:         chzc.sqc
+* VERSION:      1.5
+*                                                         
+*   (C) COPYRIGHT International Business Machines Corp.   
+*   1993, 2015                                            
+*   All Rights Reserved                                   
+*   Licensed Materials - Property of IBM                  
+*   5724-B44                                              
+*                                                         
+*   US Government Users Restricted Rights -               
+*   Use, duplication or disclosure restricted by          
+*   GSA ADP Schedule Contract with IBM Corp.              
+*                                                         
+*                                                                       
+*            NOTICE TO USERS OF THE SOURCE CODE EXAMPLES                
+*                                                                       
+* INTERNATIONAL BUSINESS MACHINES CORPORATION PROVIDES THE SOURCE CODE  
+* EXAMPLES, BOTH INDIVIDUALLY AND AS ONE OR MORE GROUPS, AS IS          
+* WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED,            
+* INCLUDING, BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF               
+* MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE     
+* RISK AS TO THE QUALITY AND PERFORMANCE OF THE SOURCE CODE EXAMPLES,   
+* BOTH INDIVIDUALLY AND AS ONE OR MORE GROUPS, IS WITH YOU.  SHOULD     
+* ANY PART OF THE SOURCE CODE EXAMPLES PROVE DEFECTIVE, YOU (AND NOT    
+* IBM) ASSUME THE ENTIRE COST OF ALL NECESSARY SERVICING, REPAIR OR     
+* CORRECTION.  THIS PROGRAM MAY BE USED, EXECUTED, COPIED, MODIFIED     
+* AND DISTRIBUTED WITHOUT ROYALTY FOR THE PURPOSE OF DEVELOPING,        
+* MARKETING, OR DISTRIBUTING.                                           
+*                                                                       
+*                                                                       
+***************************************************************
+* PURPOSE:
+*     The purpose of this example C program is to demonstrate and test DB2
+*     connectivity from within a CICS transaction.
+*
+* EXTERNAL DEPENDENCIES:
+*     This example program requires:
+*
+*     - A CICS region that is set up for DB2 connectivity as described
+*       in the CICS Administration Guide.
+*
+*     - That the region has had the following resourced defined:
+*
+*       -- A Temporary Storage Queue named CHZQUEUE.
+*       -- An Extrapartition Transient Data Queue named CHZQ.
+*	-- A Transaction named CHZ1.
+*	-- A Program named CHZ1.
+*	-- A Map named CHZ1M.
+*
+*	These resources are defined using the makefile "install" rule.
+*
+*     - An existing database for precompilation and binding.
+*
+*     - A table named CICS.CHEESE in the above database.  This is created
+*       with CHEESE.sql SQL command script file.
+*
+*     - Compilation and linking using the cicstcl command. Refer to the
+*       makefile.
+*
+*     - The CICS, Encina, DCE, and DB2 environment settings required for
+*       application development.
+*
+* DESCRIPTION:
+*
+* This example program uses the CHZ1 CICS transaction to update the CICS.CHEESE
+* table.  This program can be built to be used in either XA or non-XA mode 
+* and can incorporate a CONNECT using authorization.  
+*
+* The following #if directives are used:
+*
+*      _WIN32 - Replaces DLLIMPORT, DLLEXPORT, and CDECL with those
+*               required for NT.
+*
+*      non_XA - Includes the statements required for non-XA. 
+*
+*      authorization - Adds a user account and password to the CONNECT.
+*
+* The name of the database, the user account name, and the password can be
+* passed to the compiler via the makefile.  Otherwise, the defaults are used.
+*
+* The CICS defined abend codes used in this program are as follows:
+*
+*      X001 - Connection failure.
+*      X002 - DFHRESP response was not NORMAL.
+*
+*
+*/
+
+/* ---------------------------------------------------------------- */
+/* Define DLLIMPORT, DLLEXPORT, and CDECL for NT or UNIX:           */
+/* ---------------------------------------------------------------- */
+
+#ifdef _WIN32
+#define DLLIMPORT __declspec(dllimport)
+#define DLLEXPORT __declspec(dllexport)
+#define CDECL __cdecl
+#else
+#define DLLIMPORT
+#define DLLEXPORT
+#define CDECL
+#endif
+
+/* ---------------------------------------------------------------- */
+/* Include the DB2 header files:                                    */
+/* ---------------------------------------------------------------- */
+
+#include <sqlcli.h>  
+#include <sql.h>
+
+/* ---------------------------------------------------------------- */
+/* Include the header file created from the BMS source:             */
+/* ---------------------------------------------------------------- */
+
+#include "chz1.h"
+
+/* ---------------------------------------------------------------- */
+/* Include the compiler header files:                               */
+/* ---------------------------------------------------------------- */
+
+#include <stdio.h>  
+#ifdef _WIN32
+#include <stdlib.h>
+#include <string.h>
+#endif
+
+/* ---------------------------------------------------------------- */
+/* Define the message text:                                         */
+/* ---------------------------------------------------------------- */
+
+#define READY "Ready ... Steady ... Go ..."
+#define NOCHEESE "There is no such cheese in the table."
+#define UPDATECHEESE "The cheese table was successfully updated."
+#define CONNECTOK "We have connected to the database."
+#define SENT1 "PANEL1 was SENT."
+#define GOTCHEESE "Got the cheese name from PANEL1."
+#define SENT2 "PANEL2 was SENT."
+#define GOTCHEESEREC "The CHEESE record is displayed in PANEL2."
+#define YESTHING "The user wants to update the CHEESE table."
+#define NOTHING "The user does not want to update the CHEESE table."
+#define GOODBYE "Thank you for using the CHEESE program."
+#define SENT3 "PANEL3 was SENT."
+#define ORDRECEIVED "Order quantity received from PANEL3."
+#define SENT4 "PANEL4 was SENT."
+
+/* ---------------------------------------------------------------- */
+/* Define the name of the database, the user account name, and the  */
+/* password in case we need them.                                   */
+/* ---------------------------------------------------------------- */
+
+#ifndef DATABASE
+#define DATABASE "cicstest"
+#endif
+#ifndef USERID
+#define USERID "cicstest"
+#endif
+#ifndef PASSWD
+#define PASSWD "cicstest"
+#endif
+
+/* ---------------------------------------------------------------- */
+/* We are using the DB2 sqlcode value of 100 to test if the cheese  */
+/* specified exists in the table.  This is so we can tell them that */
+/* they entered the wrong cheese.                                   */
+/* ---------------------------------------------------------------- */
+
+#define WRONGCHEESE 100
+
+/* ---------------------------------------------------------------- */
+/* Declare the local SQLCA:                                         */
+/* ---------------------------------------------------------------- */
+
+EXEC SQL INCLUDE SQLCA;
+ 
+/* ---------------------------------------------------------------- */
+/* Declare the queue name and time variables used in messages:      */
+/* ---------------------------------------------------------------- */
+
+int rcode;
+char tsqueue[8] = "CHZQUEUE";
+char tdqueue[4] = "CHZQ";
+char qmsg[400];
+char atime[8];
+char qtime[9] = "00:00:00";
+  
+/* ---------------------------------------------------------------- */
+/* Declare the host variables used by DB2:                          */
+/* ---------------------------------------------------------------- */
+
+EXEC SQL BEGIN DECLARE SECTION;
+  
+char dbase[15];
+char name[16];
+char supplier[31];
+char supplier_address[31]; 
+sqlint32 order_quantity;
+char username[15];
+char password[15];
+
+EXEC SQL END DECLARE SECTION;
+
+/* ---------------------------------------------------------------- */
+/* MAIN                                                             */
+/* ---------------------------------------------------------------- */
+DLLEXPORT CDECL main() {
+/* ---------------------------------------------------------------- */
+/* Define values for errmsg and mlen:                               */
+/* ---------------------------------------------------------------- */
+        char errmsg[400];
+	short mlen;
+/* ---------------------------------------------------------------- */
+/* Initialize the maps:                                             */
+/* ---------------------------------------------------------------- */
+        memset (&panel1, 0x00, sizeof(panel1));
+        memset (&panel2, 0x00, sizeof(panel2));
+        memset (&panel3, 0x00, sizeof(panel3));
+        memset (&panel4, 0x00, sizeof(panel4));
+/* ---------------------------------------------------------------- */
+/* Get addressability for the CICS EXEC Interface Block (EIB):      */
+/* ---------------------------------------------------------------- */
+        EXEC CICS ADDRESS EIB(dfheiptr);
+/* ---------------------------------------------------------------- */
+/* If this is non-XA, CONNECT to the database.  Use authorization   */
+/* on the CONNECT if the authorization #if directive was used.      */
+/*                                                                  */
+/* Find out if the CONNECT was good.  If it was, say so in the      */
+/* queues.  Otherwise, write the SQLCODE and SQLERRMC to the        */
+/* queues and leave with an ABEND of X001.                          */
+/*                                                                  */
+/* NOTE: This code can also be used when the connect type is XA     */
+/*       to use a database other than the database the specified    */
+/*       in the XAD.  For more information, refer to the CICS       */
+/*       Application Programming Guide.                             */
+/*                                                                  */
+/* ---------------------------------------------------------------- */
+#ifdef non_XA
+         	strcpy(dbase, DATABASE);
+#ifdef authorization
+       		strcpy(username, USERID);
+       		strcpy(password, PASSWD);
+       		EXEC SQL CONNECT TO :dbase
+		USER :username USING :password;
+#else
+       		EXEC SQL CONNECT TO :dbase; 
+#endif
+		if (sqlca.sqlcode == 0) {
+			EXEC CICS ASKTIME ABSTIME(atime);
+			EXEC CICS FORMATTIME ABSTIME(atime) 
+				TIME(qtime) TIMESEP;
+			memset(qmsg, '\0', 132);
+			sprintf(qmsg, "%4s %4s %8s %10d %.70s",
+				dfheiptr->eibtrmid, dfheiptr->eibtrnid, 
+				qtime, 0, CONNECTOK); 
+			write_queues(qmsg);
+		} else {
+			EXEC CICS ASKTIME ABSTIME(atime);
+			EXEC CICS FORMATTIME ABSTIME(atime)
+				TIME(qtime) TIMESEP;
+			memset(qmsg, '\0', 132);
+			sprintf(qmsg, "%4s %4s %8s %10d %.70s",
+				dfheiptr->eibtrmid, dfheiptr->eibtrnid, 
+				qtime, sqlca.sqlcode, sqlca.sqlerrmc);
+			write_queues(qmsg);
+			EXEC CICS ABEND ABCODE("X001");
+		}
+#endif
+/* ---------------------------------------------------------------- */
+/* Let's write to the queue to say we are ready to begin:           */
+/* ---------------------------------------------------------------- */
+	EXEC CICS ASKTIME ABSTIME(atime);
+	EXEC CICS FORMATTIME ABSTIME(atime)
+		TIME(qtime) TIMESEP;
+	memset(qmsg, '\0', 132);
+	sprintf(qmsg, "%4s %4s %8s %10d %.70s", dfheiptr->eibtrmid, 	
+		dfheiptr->eibtrnid, qtime, 0, READY); 
+	write_queues(qmsg);
+/* ---------------------------------------------------------------- */
+/* From now on, go to errexit whenever we get an SQL error:         */
+/* ---------------------------------------------------------------- */
+        EXEC SQL WHENEVER SQLERROR GOTO :errexit;
+/* ---------------------------------------------------------------- */
+/* SEND the first panel. If that works, say so in the queues:       */
+/* ---------------------------------------------------------------- */
+	EXEC CICS SEND MAP("PANEL1") MAPSET("CHZ1M") 
+		FREEKB ERASE RESP(rcode);
+	rtn_dfhproc(rcode);
+
+	memset(qmsg, '\0', 132);
+	sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+		dfheiptr->eibtrnid, 0, SENT1); 
+	write_queues(qmsg);
+/* ---------------------------------------------------------------- */
+/* Receive the CHEESE name.  If that works, say so in the queues:   */
+/* ---------------------------------------------------------------- */
+        EXEC CICS RECEIVE MAP("PANEL1") MAPSET("CHZ1M") RESP(rcode);
+	rtn_dfhproc(rcode);
+
+	memset(qmsg, '\0', 132);
+	sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+		dfheiptr->eibtrnid, 0, GOTCHEESE); 
+	write_queues(qmsg);
+/* ---------------------------------------------------------------- */
+/* SELECT a record FROM table CICS.CHEESE according to the CHEESE   */
+/* name received from PANEL1.  If the CHEESE does not exist in the  */
+/* table, tell them there is no such cheese and leave.              */
+/* ---------------------------------------------------------------- */
+	sprintf(name, "%s", panel1.panel1i.newnamei);
+
+	EXEC SQL SELECT name, supplier, supplier_address, order_quantity
+	into 
+	:name, :supplier, :supplier_address, :order_quantity
+	FROM cics.cheese
+	WHERE NAME = :name;
+  
+	if (sqlca.sqlcode == WRONGCHEESE) {
+		sprintf(panel4.panel4o.messageo, "%s", NOCHEESE);
+		EXEC CICS SEND MAP("PANEL4") MAPSET("CHZ1M") 
+			FREEKB ERASE RESP(rcode);
+		rtn_dfhproc(rcode);
+#ifdef non_XA
+		EXEC SQL ROLLBACK WORK;
+		EXEC SQL CONNECT RESET;
+#endif
+		EXEC CICS SEND CONTROL FREEKB;	
+		EXEC CICS RETURN;
+	}
+/* ---------------------------------------------------------------- */
+/* Fill in and SEND the second map with the record returned from    */
+/* the SELECT and say something in the queues about it:             */
+/* ---------------------------------------------------------------- */
+	sprintf(panel2.panel2o.nameo, "%s", name);
+	sprintf(panel2.panel2o.supplo, "%s",supplier);
+	sprintf(panel2.panel2o.addresso, "%s", supplier_address);
+	sprintf(panel2.panel2o.ordero, "%d", order_quantity);
+
+	EXEC CICS SEND MAP("PANEL2") MAPSET("CHZ1M") 
+		FREEKB ERASE RESP(rcode);
+	rtn_dfhproc(rcode);
+
+	memset(qmsg, '\0', 132);
+	sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+		dfheiptr->eibtrnid, 0, SENT2); 
+	write_queues(qmsg);
+
+	memset(qmsg, '\0', 132);
+	sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+		dfheiptr->eibtrnid, 0, GOTCHEESEREC); 
+	write_queues(qmsg);
+/* ---------------------------------------------------------------- */
+/* Receive the response from PANEL2 and say something in the queues */
+/* about it.                                                        */
+/* ---------------------------------------------------------------- */
+        EXEC CICS RECEIVE MAP("PANEL2") MAPSET("CHZ1M") RESP(rcode);
+	rtn_dfhproc(rcode);
+
+	if (panel2.panel2i.questi == 'y') {
+		memset(qmsg, '\0', 132);
+		sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+			dfheiptr->eibtrnid, 0, YESTHING); 
+		write_queues(qmsg);
+	} else {
+		memset(qmsg, '\0', 132);
+		sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+			dfheiptr->eibtrnid, 0, NOTHING); 
+		write_queues(qmsg);
+	}
+/* ---------------------------------------------------------------- */
+/* If the response from PANEL2 was something other than "y", leave  */
+/* in a polite way.  Otherwise:                                     */
+/*                                                                  */
+/* - Send PANEL3 and say so in the queues.                          */
+/* - Receive the response from PANEL3 and say so in the queues.     */    
+/* - Convert ASCI value of newordi to the integer order_quantity.   */
+/* - Update the database.                                           */
+/* - Commit the work.                                               */
+/* - Send PANEL4 with the appropriate message.                      */
+/* - Then leave.                                                    */
+/* ---------------------------------------------------------------- */
+	if (panel2.panel2i.questi != 'y') {
+		sprintf(panel4.panel4o.messageo, GOODBYE); 
+		EXEC CICS SEND MAP("PANEL4") MAPSET("CHZ1M") 
+			FREEKB ERASE RESP(rcode);
+		rtn_dfhproc(rcode);
+
+		memset(qmsg, '\0', 132);
+		sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+			dfheiptr->eibtrnid, 0, SENT4); 
+		write_queues(qmsg);
+#ifdef non_XA
+		EXEC SQL ROLLBACK WORK;
+		EXEC SQL CONNECT RESET;
+#endif
+		EXEC CICS RETURN;
+	}
+
+	if (panel2.panel2i.questi == 'y') {
+		EXEC CICS SEND MAP("PANEL3") MAPSET("CHZ1M") 
+			FREEKB ERASE RESP(rcode);
+		rtn_dfhproc(rcode);
+
+		memset(qmsg, '\0', 132);
+		sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+			dfheiptr->eibtrnid, 0, SENT3); 
+		write_queues(qmsg);
+
+		EXEC CICS RECEIVE MAP("PANEL3") MAPSET("CHZ1M")
+			RESP(rcode);
+		rtn_dfhproc(rcode);
+
+		memset(qmsg, '\0', 132);
+		sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+			dfheiptr->eibtrnid, 0, ORDRECEIVED); 
+		write_queues(qmsg);
+
+		order_quantity = atoi(panel3.panel3i.newordi);
+
+		EXEC SQL UPDATE cics.cheese
+		set order_quantity = :order_quantity
+		where name = :name;
+
+		memset(qmsg, '\0', 132);
+		sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+			dfheiptr->eibtrnid, 0, UPDATECHEESE); 
+		write_queues(qmsg);
+
+        	EXEC CICS SYNCPOINT RESP(rcode);
+		rtn_dfhproc(rcode);
+#ifdef non_XA
+		EXEC SQL COMMIT WORK;
+		EXEC SQL CONNECT RESET;
+#endif
+		sprintf(panel4.panel4o.messageo, UPDATECHEESE); 
+		EXEC CICS SEND MAP("PANEL4") MAPSET("CHZ1M") 
+			FREEKB ERASE RESP(rcode);
+		rtn_dfhproc(rcode);
+        	EXEC CICS RETURN;
+	}
+/* ---------------------------------------------------------------- */
+/* Handle the SQL errors by:                                        */ 
+/*                                                                  */
+/*    - Sending PANEL4 with the SQLCODE.                            */
+/*    - Writing SQLCODE and SQLERRMC to the queues.                 */
+/*    - Rolling everything back.                                    */
+/*    - Disconnecting from the database if we are non-XA.           */
+/*    - Leaving.                                                    */
+/*                                                                  */
+/* Notice the use of the DB2 function "sqlaintp".  This functions   */
+/* retrieves DB2 messages in the language specified with LANG.      */
+/* Refer to the DB2 documentation for more information.             */
+/*                                                                  */
+/* ---------------------------------------------------------------- */
+errexit:
+        EXEC SQL WHENEVER SQLERROR CONTINUE;
+
+       	sqlaintp (errmsg, sizeof(errmsg), 0, &sqlca);
+	strncpy(panel4.panel4o.messageo, errmsg, 60);
+       	sprintf(panel4.panel4o.codeo, "%d", sqlca.sqlcode);
+
+       	EXEC CICS SEND MAP("PANEL4") MAPSET("CHZ1M") 
+		FREEKB ERASE RESP(rcode);
+	rtn_dfhproc(rcode);
+
+	memset(qmsg, '\0', 132);
+	sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
+		dfheiptr->eibtrnid, sqlca.sqlcode, errmsg);
+	write_queues(qmsg);
+#ifdef non_XA
+	EXEC SQL ROLLBACK WORK;
+	EXEC SQL CONNECT RESET;
+#endif
+	EXEC CICS SYNCPOINT ROLLBACK;
+        EXEC CICS RETURN;
+/* ---------------------------------------------------------------- */
+/* END OF MAIN	                                                    */
+/* ---------------------------------------------------------------- */
+
+}
+
+/* ---------------------------------------------------------------- */
+/* ---------------------------------------------------------------- */
+/* FUNCTION:                                                        */
+/* Process the CICS DFHRESP according to the connection type, and   */
+/* leave with a CICS defined abend code of X002 if we have an       */
+/* error.                                                           */
+/* ---------------------------------------------------------------- */
+static int rtn_dfhproc(rcode) {
+	if (rcode != DFHRESP(NORMAL)) {
+#ifdef non_XA
+		EXEC SQL ROLLBACK WORK;
+		EXEC SQL CONNECT RESET;
+#endif
+	 	EXEC CICS ABEND ABCODE("X002"); }
+}
+/* ---------------------------------------------------------------- */
+/* FUNCTION: Write to the queues                                    */
+/* ---------------------------------------------------------------- */
+
+write_queues(char * qmsg) {
+	EXEC CICS WRITEQ TS QUEUE(tsqueue) FROM(qmsg) 
+		LENGTH(strlen(qmsg)) RESP(rcode);
+	rtn_dfhproc(rcode);
+	EXEC CICS WRITEQ TD QUEUE(tdqueue) FROM(qmsg)
+		LENGTH(strlen(qmsg)) RESP(rcode);
+	rtn_dfhproc(rcode);
+}

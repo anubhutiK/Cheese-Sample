@@ -1,0 +1,443 @@
+/*
+ * NAME:         db21pc.sqc
+ * VERSION:      1.7
+ *                                                         
+ *   (C) COPYRIGHT International Business Machines Corp.   
+ *   1993, 2015                                            
+ *   All Rights Reserved                                   
+ *   Licensed Materials - Property of IBM                  
+ *   5724-B44                                              
+ *                                                         
+ *   US Government Users Restricted Rights -               
+ *   Use, duplication or disclosure restricted by          
+ *   GSA ADP Schedule Contract with IBM Corp.              
+ *                                                         
+ *                                                                       
+ *            NOTICE TO USERS OF THE SOURCE CODE EXAMPLES                
+ *                                                                       
+ * INTERNATIONAL BUSINESS MACHINES CORPORATION PROVIDES THE SOURCE CODE  
+ * EXAMPLES, BOTH INDIVIDUALLY AND AS ONE OR MORE GROUPS, AS IS          
+ * WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED,            
+ * INCLUDING, BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF               
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE     
+ * RISK AS TO THE QUALITY AND PERFORMANCE OF THE SOURCE CODE EXAMPLES,   
+ * BOTH INDIVIDUALLY AND AS ONE OR MORE GROUPS, IS WITH YOU.  SHOULD     
+ * ANY PART OF THE SOURCE CODE EXAMPLES PROVE DEFECTIVE, YOU (AND NOT    
+ * IBM) ASSUME THE ENTIRE COST OF ALL NECESSARY SERVICING, REPAIR OR     
+ * CORRECTION.  THIS PROGRAM MAY BE USED, EXECUTED, COPIED, MODIFIED     
+ * AND DISTRIBUTED WITHOUT ROYALTY FOR THE PURPOSE OF DEVELOPING,        
+ * MARKETING, OR DISTRIBUTING.                                           
+ *                                                                       
+ *                                                                       
+ *                                                                       
+ *
+ * The purpose of the single phase switch is to allow integration with
+ * the database system as a resource manager in a single phase commit
+ * configuration. This configuration provides performance benefits when
+ * compared with both non-XA and XA CICS configurations. However, full
+ * data integrity amongst resource managers is not provided.
+ *
+ */
+
+#include <stdio.h>
+
+#ifdef _WIN32
+	#include <stdlib.h>
+	#include <string.h>
+
+	#define ENCINA_XA_CALLING __cdecl
+#endif
+
+#include<stdlib.h>
+#include<string.h>
+#include <tran/tran.h>
+#include <tmxa/tmxa.h>
+#include <sql.h>
+
+EXEC SQL INCLUDE sqlca;
+
+/*-------------------------------------------------------*/
+/*  function for CICS runtime 1-phase initialisation     */
+/*-------------------------------------------------------*/
+
+#ifdef _WIN32
+	#define DLLIMPORT __declspec(dllimport)
+	#define DLLEXPORT __declspec(dllexport)
+	#define CDECL __cdecl
+	extern DLLIMPORT int (*CICSOnePhaseInit)(void);
+	DLLEXPORT struct xa_switch_t * CDECL CICS_XA_Init(void);
+#else
+	#define DLLIMPORT
+	#define DLLEXPORT
+	#define CDECL
+	extern int (*CICSOnePhaseInit)(void);
+	struct xa_switch_t * CICS_XA_Init(void);
+#endif
+
+extern void CDECL cics_xa_init(void);
+
+/*-------------------------------------------------------*/
+/*  function prototypes                                  */
+/*-------------------------------------------------------*/
+int CDECL no_xa_open(char *, int, long);
+int CDECL no_xa_close(char *, int, long);
+int CDECL no_xa_start(XID *, int, long);
+int CDECL no_xa_end(XID *, int, long);
+int CDECL no_xa_rollback(XID *, int, long);
+int CDECL no_xa_prepare(XID *, int, long);
+int CDECL no_xa_commit(XID *, int, long);
+int CDECL no_xa_recover(XID *, long, int, long);
+int CDECL no_xa_forget(XID *, int, long);
+int CDECL no_xa_complete(int *, int *, int, long);
+
+/*-------------------------------------------------------*/
+/*  global storage areas                                 */
+/*-------------------------------------------------------*/
+DLLEXPORT struct xa_switch_t noxaswitch = {
+   "DB2 Single Phase",
+   0,
+   0,
+   no_xa_open,
+   no_xa_close,
+   no_xa_start,
+   no_xa_end,
+   no_xa_rollback,
+   no_xa_prepare,
+   no_xa_commit,
+   no_xa_recover,
+   no_xa_forget,
+   no_xa_complete};
+
+extern struct xa_switch_t RegXA_xa_switch;
+extern struct xa_switch_t *cics_xa_switch;
+
+extern long *cics_sqlca_code;
+extern char cics_sqlca_message[400];
+extern int (*cics_xa_sql_error)();
+
+/******************************************************************************/
+/*         do_sql_error()                                                     */
+/******************************************************************************/
+int do_sql_error(void)
+{
+    char errmsg[400];
+
+    /* DEFECT Begin 204985 */
+
+    memset(errmsg,'\0',400);
+
+    /* DEFECT End 204985 */
+
+    cics_sqlca_code = &sqlca.sqlcode;                         /* Copy SQLCODE */
+    sqlaintp(errmsg, sizeof(errmsg), 0, &sqlca);          /* Get message text */
+    strcpy(cics_sqlca_message, errmsg);                  /* Copy message text */
+    return(0);
+}
+
+/******************************************************************************/
+/*         CICS tmxa initialisation function - do not change                  */
+/******************************************************************************/
+int no_OnePhaseInit(void)
+{
+    int Status;
+
+    Status=tmxa_SetUsesOnlyLocalXaWork(TRAN_TID_NULL,
+                                       TMXA_NEW_TOP_LEVEL_TIDS,
+                                       TMXA_ONLY_LOCAL_XA_WORK);
+    return(Status);
+}
+
+/******************************************************************************/
+/*         CICS_XA_Init()                  -- entry point --                  */
+/******************************************************************************/
+DLLEXPORT struct xa_switch_t * CDECL CICS_XA_Init(void)
+{
+    cics_xa_sql_error = &do_sql_error;     /* Routine returning error message */
+    cics_xa_switch = &noxaswitch;        /* structure of XA function pointers */
+    cics_xa_init();                            /* initialize the XA interface */
+
+    CICSOnePhaseInit = &no_OnePhaseInit;
+    return(&RegXA_xa_switch);
+}
+
+int CDECL parseToken(char* InString,char* DatabaseName,
+                     char* UserName,char* Password)
+{   
+   char* tok = NULL;
+   int Ret = 0;
+
+    tok = strtok(InString,"=");
+    if(tok != NULL)
+    {
+      if(strcmp(tok,"DB") == 0)
+      {
+        ((tok=strtok(NULL,"=")) == NULL)?strcpy(DatabaseName,""):strcpy(DatabaseName,tok);
+        if(strcmp(DatabaseName,"")==0) 
+           Ret = -1;
+      }
+      else if(strcmp(tok,"UID") == 0)
+      {
+        ((tok=strtok(NULL,"=")) == NULL)?strcpy(UserName,""):strcpy(UserName,tok);
+        if(strcmp(UserName,"")==0) 
+           Ret = -1;
+      }
+      else if(strcmp(tok,"PWD") == 0)
+      {
+        ((tok=strtok(NULL,"=")) == NULL)?strcpy(Password,""):strcpy(Password,tok);
+        if(strcmp(Password,"")==0) 
+           Ret = -1;
+      }
+      else
+      {
+        return -1;
+      }
+      return(Ret);
+    }
+    return -1;
+}
+
+
+int CDECL parse_XAOpen_String(char *InString,
+                 char *DatabaseName,
+                 char *UserName,
+                 char *Password)
+{
+   int i,j;
+   int Ret = 0;
+   int RetVal = 0;
+
+   char* Tokens[3]; /* We will worry about only the first three tokens in the open string */
+
+   for(i = 0;i < 3;i++)
+   {
+      Tokens[i] = NULL;
+   }
+
+   j=0;
+   i=0;
+
+   if(strcmp(InString,"")==0)
+   {
+      return -1;
+   }
+
+   if(strchr(InString,',') == NULL) /*Only database name specified */
+   {
+     /* The case where only database name is specified for the open string.*/
+
+         if(strchr(InString,'=') == NULL)
+         {
+           /* Specified in the old format */
+           strcpy(DatabaseName,InString);
+         } 
+         else
+         {
+             /* Specified in the new format ... like DB="Database" */
+             RetVal = parseToken(InString,DatabaseName,
+                                 UserName,Password);
+             if(RetVal == -1)
+             {
+                Ret = -1;
+             }
+         }
+   }
+   else /* User name and password specified along with the database name*/
+   {
+     /* When the open string has user name and password 
+      * We take only the first three entries in the open string
+      * and ignore anything specified after the password
+      */
+
+     Tokens[0] = strtok(InString,",");
+
+     i = 0;
+     while(Tokens[i] != NULL && i < 3)
+     {
+       i++;
+       if(i > 2)
+         break;
+       Tokens[i] = strtok(NULL,",");  
+     }
+    
+     i = 0;
+
+     while(i < 3 )
+     {
+       if(Tokens[i] != NULL)
+       {
+         if(strchr(Tokens[i],'=') == NULL)
+         {
+           if(i == 0)
+           {
+             strcpy(DatabaseName,Tokens[i]);
+           }
+           else if(i == 1)
+           {
+             strcpy(UserName,Tokens[i]);
+           }
+           else if(i == 2)
+           {
+             strcpy(Password,Tokens[i]);
+           }
+         }
+         else /* Open string specified in new format */
+         {
+           RetVal = parseToken(Tokens[i],DatabaseName,
+                                     UserName,Password);
+           if(RetVal == -1)
+              return -1;
+         }
+       }
+       else
+       {
+         Ret = -1;
+       }
+       
+       i++;
+     } /* End while */
+ 
+   }/* End else..new format specified */
+   
+   return(Ret);
+}
+/******************************************************************************/
+/*         no_xa_open()                                                       */
+/******************************************************************************/
+
+int CDECL no_xa_open(char *str1, int i0, long i1)
+{
+    EXEC SQL BEGIN DECLARE SECTION;
+        char database[9] = "";
+        char user[9] = "";
+        char password[19] = "";
+    EXEC SQL END DECLARE SECTION;
+    char openstring[MAXINFOSIZE];
+    int ret = XA_OK;
+    int RetVal = 0;
+    char *ev;
+
+    /*
+     * check that DB2INSTANCE is set
+     */
+    if ( (ev = (char *)getenv("DB2INSTANCE")) == NULL )
+    {
+        /* DEFECT Begin 204985 */
+
+        fprintf(stderr,"\n The environment variable DB2INSTANCE is not set \n");
+        fflush(stderr);
+
+        /* DEFECT End 204985 */
+
+        return(XAER_RMERR);
+    }
+
+    /*
+     * Get database, user name and password from open string
+     */
+    strncpy(openstring, str1, sizeof(openstring));
+    openstring[MAXINFOSIZE - 1] = '\0';
+
+    RetVal = parse_XAOpen_String(openstring,database,user,password);
+
+    if(RetVal == -1)
+    {
+      return(XAER_INVAL);
+    }
+
+    /*
+     * Connect to database
+     */
+    if (*user != '\0')
+    {
+        EXEC SQL CONNECT TO :database USER :user USING :password;
+    }
+    else
+    {
+        EXEC SQL CONNECT TO :database;
+    }
+
+    /*
+     * Check return code from CONNECT
+     */
+    if (sqlca.sqlcode != 0)
+    {
+        return(XAER_RMERR);
+    }
+
+    return(ret);
+}
+
+/******************************************************************************/
+/*         no_xa_close()                                                      */
+/******************************************************************************/
+int CDECL no_xa_close(char *str1, int i0, long i1)
+{
+    EXEC SQL CONNECT RESET;
+    return(XA_OK);
+}
+
+/******************************************************************************/
+/*         no_xa_start()                                                      */
+/******************************************************************************/
+int CDECL no_xa_start(XID *str1, int i0, long i1)
+{
+    return(XA_OK);
+}
+
+/******************************************************************************/
+/*         no_xa_end()                                                        */
+/******************************************************************************/
+int CDECL no_xa_end(XID *str1, int i0, long i1)
+{
+    return(XA_OK);
+}
+
+/******************************************************************************/
+/*         no_xa_rollback()                                                   */
+/******************************************************************************/
+int CDECL no_xa_rollback(XID *str1, int i0, long i1)
+{
+    EXEC SQL ROLLBACK WORK;
+    return((sqlca.sqlcode < 0 ? XAER_RMERR : XA_OK));
+}
+
+/******************************************************************************/
+/*         no_xa_prepare()                                                    */
+/******************************************************************************/
+int CDECL no_xa_prepare(XID *str1, int i0, long i1)
+{
+    return(XA_OK);
+}
+
+/******************************************************************************/
+/*         no_xa_commit()                                                     */
+/******************************************************************************/
+int CDECL no_xa_commit(XID *str1, int i0, long i1)
+{
+    EXEC SQL COMMIT WORK;
+    return((sqlca.sqlcode < 0 ? XAER_RMERR : XA_OK));
+}
+
+/******************************************************************************/
+/*         no_xa_recover()                                                    */
+/******************************************************************************/
+int CDECL no_xa_recover(XID *str1, long i0, int i1, long i2)
+{
+    return(XA_OK);
+}
+
+/******************************************************************************/
+/*         no_xa_forget()                                                     */
+/******************************************************************************/
+int CDECL no_xa_forget(XID *str1, int i0, long i1)
+{
+    return(XA_OK);
+}
+
+/******************************************************************************/
+/*         no_xa_complete()                                                   */
+/******************************************************************************/
+int CDECL no_xa_complete(int *i0, int *i1, int i2, long i3)
+{
+    return(XA_OK);
+}

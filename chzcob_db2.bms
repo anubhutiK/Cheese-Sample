@@ -1,0 +1,105 @@
+*
+*                                                         
+*   (C) COPYRIGHT International Business Machines Corp.   
+*   1993, 2015                                            
+*   All Rights Reserved                                   
+*   Licensed Materials - Property of IBM                  
+*   5724-B44                                              
+*                                                         
+*   US Government Users Restricted Rights -               
+*   Use, duplication or disclosure restricted by          
+*   GSA ADP Schedule Contract with IBM Corp.              
+*                                                         
+*                                                                       
+*            NOTICE TO USERS OF THE SOURCE CODE EXAMPLES                
+*                                                                       
+* INTERNATIONAL BUSINESS MACHINES CORPORATION PROVIDES THE SOURCE CODE  
+* EXAMPLES, BOTH INDIVIDUALLY AND AS ONE OR MORE GROUPS, AS IS          
+* WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED,            
+* INCLUDING, BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF               
+* MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE     
+* RISK AS TO THE QUALITY AND PERFORMANCE OF THE SOURCE CODE EXAMPLES,   
+* BOTH INDIVIDUALLY AND AS ONE OR MORE GROUPS, IS WITH YOU.  SHOULD     
+* ANY PART OF THE SOURCE CODE EXAMPLES PROVE DEFECTIVE, YOU (AND NOT    
+* IBM) ASSUME THE ENTIRE COST OF ALL NECESSARY SERVICING, REPAIR OR     
+* CORRECTION.  THIS PROGRAM MAY BE USED, EXECUTED, COPIED, MODIFIED     
+* AND DISTRIBUTED WITHOUT ROYALTY FOR THE PURPOSE OF DEVELOPING,        
+* MARKETING, OR DISTRIBUTING.                                           
+*                                                                       
+*                                                                       
+*
+CHZ2    DFHMSD TYPE=&SYSPARM,MODE=INOUT,LANG=COBOL,STORAGE=AUTO,       X
+               DSATTS=(COLOR,HILIGHT),MAPATTS=(COLOR,HILIGHT),         X
+               TERM=3270-2,TIOAPFX=YES,COLOR=GREEN,HILIGHT=OFF
+PANEL1  DFHMDI SIZE=(24,80),DSATTS=(HILIGHT),MAPATTS=(HILIGHT),LINE=1, X
+               COLUMN=1
+        DFHMDF POS=(2,10),LENGTH=44,ATTRB=(PROT,NORM),                 X
+               INITIAL='View Cheese Order - DB2 Version using COBOL'
+        DFHMDF POS=(6,10),LENGTH=30,ATTRB=(PROT,NORM),                 X
+               INITIAL='We have the following cheeses:'
+        DFHMDF POS=(8,15),LENGTH=7,ATTRB=(PROT,NORM),                  X
+               INITIAL='Stilton'
+        DFHMDF POS=(8,35),LENGTH=11,ATTRB=(PROT,NORM),                 X
+               INITIAL='Wensleydale'
+        DFHMDF POS=(8,55),LENGTH=7,ATTRB=(PROT,NORM),                  X
+               INITIAL='Cheddar'
+        DFHMDF POS=(9,15),LENGTH=4,ATTRB=(PROT,NORM),                  X
+               INITIAL='Brie'
+        DFHMDF POS=(9,35),LENGTH=9,ATTRB=(PROT,NORM),                  X
+               INITIAL='Camembert'
+        DFHMDF POS=(9,55),LENGTH=4,ATTRB=(PROT,NORM),                  X
+               INITIAL='Edam'
+        DFHMDF POS=(10,15),LENGTH=8,ATTRB=(PROT,NORM),                 X
+               INITIAL='Cheshire'
+        DFHMDF POS=(10,35),LENGTH=5,ATTRB=(PROT,NORM),                 X
+               INITIAL='Gouda'
+        DFHMDF POS=(10,55),LENGTH=13,ATTRB=(PROT,NORM),                X
+               INITIAL='Red Leicester'
+        DFHMDF POS=(11,15),LENGTH=7,ATTRB=(PROT,NORM),                 X
+               INITIAL='Boursin'
+        DFHMDF POS=(14,10),LENGTH=29,ATTRB=(PROT,NORM),                X
+               INITIAL='Enter Name of Cheese (as is):'
+NEWNAME DFHMDF POS=(14,47),LENGTH=15,ATTRB=(UNPROT,NORM,IC)
+        DFHMDF POS=(14,63),ATTRB=(ASKIP,NORM),LENGTH=1
+PANEL2  DFHMDI SIZE=(24,80),DSATTS=(HILIGHT),MAPATTS=(HILIGHT),LINE=1, X
+               COLUMN=1
+        DFHMDF POS=(2,29),LENGTH=18,ATTRB=(PROT,NORM),                 X
+               INITIAL='View Cheese Order'
+CHLAB   DFHMDF POS=(6,16),LENGTH=7,ATTRB=(PROT,NORM),INITIAL='Cheese:'
+NAME    DFHMDF POS=(6,35),LENGTH=15,ATTRB=(PROT,NORM)
+SUPLAB  DFHMDF POS=(8,16),LENGTH=9,ATTRB=(PROT,NORM),                  X
+               INITIAL='Supplier:'
+SUPPL   DFHMDF POS=(8,35),LENGTH=30,ATTRB=(PROT,NORM)
+ADDRLAB DFHMDF POS=(10,16),LENGTH=17,ATTRB=(PROT,NORM),                X
+               INITIAL='Supplier Address:'
+ADDRESS DFHMDF POS=(10,35),LENGTH=30,ATTRB=(PROT,NORM)
+ORDLAB  DFHMDF POS=(12,16),LENGTH=17,ATTRB=(PROT,NORM),                X
+               INITIAL='Quantity Ordered:'
+ORDER   DFHMDF POS=(12,35),LENGTH=12,ATTRB=(PROT,NORM),JUSTIFY=RIGHT,  X
+               PICOUT='ZZZZZZZZZZZ9'
+QLAB    DFHMDF POS=(17,12),LENGTH=49,ATTRB=(PROT,NORM),                X
+               INITIAL='Do You want to update the quantity ordered? (y/X
+               n)'
+QUEST   DFHMDF POS=(17,63),LENGTH=1,ATTRB=(UNPROT,NORM,IC)
+        DFHMDF POS=(17,65),ATTRB=(ASKIP,NORM),LENGTH=1
+PANEL3  DFHMDI SIZE=(24,80),DSATTS=(HILIGHT),MAPATTS=(HILIGHT),LINE=1, X
+               COLUMN=1
+        DFHMDF POS=(2,30),LENGTH=20,ATTRB=(PROT,NORM),                 X
+               INITIAL='Update Cheese Order'
+        DFHMDF POS=(9,11),LENGTH=29,ATTRB=(PROT,NORM),                 X
+               INITIAL='Quantity of Cheeses to order:'
+        DFHMDF POS=(9,41),ATTRB=(ASKIP,NORM),LENGTH=1
+NEWORD  DFHMDF POS=(9,46),LENGTH=6,ATTRB=(UNPROT,NORM,NUM,IC)
+        DFHMDF POS=(9,53),ATTRB=(ASKIP,NORM),LENGTH=1
+PANEL4  DFHMDI SIZE=(24,80),DSATTS=(HILIGHT),MAPATTS=(HILIGHT),LINE=1, X
+               COLUMN=1
+        DFHMDF POS=(1,30),LENGTH=30,ATTRB=(UNPROT,NORM)
+        DFHMDF POS=(2,30),LENGTH=21,ATTRB=(PROT,NORM),                 X
+               INITIAL='Cheese Order Messages'
+MLAB    DFHMDF POS=(11,5),LENGTH=8,ATTRB=(PROT,NORM),INITIAL='Message:'
+MESSAGE DFHMDF POS=(11,15),LENGTH=61,ATTRB=(UNPROT,NORM)
+        DFHMDF POS=(11,77),ATTRB=(ASKIP,NORM),LENGTH=1
+CODELAB DFHMDF POS=(12,5),LENGTH=5,ATTRB=(PROT,NORM),INITIAL='Code:'
+CODE    DFHMDF POS=(12,15),LENGTH=15,ATTRB=(UNPROT,NORM)
+        DFHMDF POS=(12,31),ATTRB=(ASKIP,NORM),LENGTH=1
+CHZ2    DFHMSD TYPE=FINAL
