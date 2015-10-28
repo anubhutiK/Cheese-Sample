@@ -160,6 +160,7 @@ DLLEXPORT struct xa_switch_t * CDECL CICS_XA_Init(void)
     return(&RegXA_xa_switch);
 }
 
+/* Hello */
 int CDECL parseToken(char* InString,char* DatabaseName,
                      char* UserName,char* Password)
 {   
