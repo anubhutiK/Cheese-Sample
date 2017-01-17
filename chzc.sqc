@@ -108,6 +108,7 @@
 #include <sqlcli.h>  
 #include <sql.h>
 
+
 /* ---------------------------------------------------------------- */
 /* Include the header file created from the BMS source:             */
 /* ---------------------------------------------------------------- */
@@ -419,6 +420,7 @@ DLLEXPORT CDECL main() {
 		where name = :name;
 
 		memset(qmsg, '\0', 132);
+		
 		sprintf(qmsg, "%4s %4s %10d %.70s", dfheiptr->eibtrmid, 
 			dfheiptr->eibtrnid, 0, UPDATECHEESE); 
 		write_queues(qmsg);
